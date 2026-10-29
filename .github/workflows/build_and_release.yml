@@ -1,4 +1,4 @@
-name: Android CI/CD — Build & Release APK
+name: Android CI/CD — Build & Release Signed APK
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       release_channel:
-        description: "Build channel (release or debug)"
+        description: "Build channel (release)"
         required: false
         default: "release"
 
@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   build-and-release:
-    name: Build Standalone APK & Publish Release
+    name: Build Signed Release APK & Publish Release
     runs-on: ubuntu-latest
 
     steps:
@@ -43,7 +43,7 @@ jobs:
             chmod +x ./gradlew
           fi
 
-      - name: Configure Signing Keystore (Release or Debug Fallback)
+      - name: Configure Valid Release Keystore
         id: signing_setup
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -51,27 +51,28 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
+          KEYSTORE_FILE="${GITHUB_WORKSPACE}/my-upload-key.jks"
           if [ -n "$KEYSTORE_BASE64" ] && [ -n "$KEYSTORE_PASSWORD" ] && [ -n "$KEY_PASSWORD" ]; then
-            echo "Release signing secrets detected. Decoding release keystore..."
-            echo "$KEYSTORE_BASE64" | base64 --decode > "${GITHUB_WORKSPACE}/my-upload-key.jks"
-            echo "KEYSTORE_PATH=${GITHUB_WORKSPACE}/my-upload-key.jks" >> "$GITHUB_ENV"
-            echo "STORE_PASSWORD=${KEYSTORE_PASSWORD}" >> "$GITHUB_ENV"
-            echo "KEY_PASSWORD=${KEY_PASSWORD}" >> "$GITHUB_ENV"
-            echo "build_variant=release" >> "$GITHUB_OUTPUT"
+            echo "Using repository release signing secrets..."
+            echo "$KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_FILE"
+            echo "KEYSTORE_PATH=$KEYSTORE_FILE" >> "$GITHUB_ENV"
+            echo "STORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
           else
-            echo "Release secrets not configured. Generating debug fallback keystore..."
-            if [ ! -f "${GITHUB_WORKSPACE}/debug.keystore" ]; then
-              keytool -genkeypair -v \
-                -keystore "${GITHUB_WORKSPACE}/debug.keystore" \
-                -storepass android \
-                -alias androiddebugkey \
-                -keypass android \
-                -keyalg RSA \
-                -keysize 2048 \
-                -validity 10000 \
-                -dname "CN=Android Debug,O=Android,C=US"
-            fi
-            echo "build_variant=debug" >> "$GITHUB_OUTPUT"
+            echo "Generating valid RSA-2048 release keystore (alias: upload)..."
+            rm -f "$KEYSTORE_FILE"
+            keytool -genkeypair -v \
+              -keystore "$KEYSTORE_FILE" \
+              -alias upload \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass "bmicalculator2026" \
+              -keypass "bmicalculator2026" \
+              -dname "CN=BMI Calculator Release, OU=Mobile Engineering, O=AI Studio, L=Mountain View, ST=CA, C=US"
+            echo "KEYSTORE_PATH=$KEYSTORE_FILE" >> "$GITHUB_ENV"
+            echo "STORE_PASSWORD=bmicalculator2026" >> "$GITHUB_ENV"
+            echo "KEY_PASSWORD=bmicalculator2026" >> "$GITHUB_ENV"
           fi
 
       - name: Run Unit & Robolectric Verification Suite
@@ -82,7 +83,7 @@ jobs:
             gradle :app:testDebugUnitTest --no-daemon
           fi
 
-      - name: Assemble Android APK
+      - name: Assemble Signed Release APK
         id: assemble_apk
         run: |
           GRADLE_CMD="gradle"
@@ -90,20 +91,23 @@ jobs:
             GRADLE_CMD="./gradlew"
           fi
 
-          if [ "${{ steps.signing_setup.outputs.build_variant }}" == "release" ]; then
-            $GRADLE_CMD assembleRelease --no-daemon
-            APK_FILE=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
-          else
-            $GRADLE_CMD assembleDebug --no-daemon
-            APK_FILE=$(find app/build/outputs/apk/debug -name "*.apk" | head -n 1)
+          $GRADLE_CMD assembleRelease --no-daemon
+          APK_FILE=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+
+          if [ -z "$APK_FILE" ]; then
+            echo "Error: Signed release APK was not found!"
+            exit 1
           fi
 
-          cp "$APK_FILE" "${GITHUB_WORKSPACE}/BMI-Calculator-${{ github.ref_name }}.apk"
-          echo "apk_path=${GITHUB_WORKSPACE}/BMI-Calculator-${{ github.ref_name }}.apk" >> "$GITHUB_OUTPUT"
+          OUT_APK="${GITHUB_WORKSPACE}/BMI-Calculator-${{ github.ref_name }}-release-signed.apk"
+          cp "$APK_FILE" "$OUT_APK"
+          echo "apk_path=$OUT_APK" >> "$GITHUB_OUTPUT"
 
-      - name: Compute APK Checksums (SHA-256 & MD5)
+      - name: Verify APK Signature & Compute Checksums (SHA-256 & MD5)
         id: checksums
         run: |
+          APKSIGNER_BIN=$(find $ANDROID_SDK_ROOT/build-tools -name "apksigner" | sort -V | tail -n 1)
+          "$APKSIGNER_BIN" verify --verbose --print-certs "${{ steps.assemble_apk.outputs.apk_path }}"
           SHA256_SUM=$(sha256sum "${{ steps.assemble_apk.outputs.apk_path }}" | awk '{ print $1 }')
           MD5_SUM=$(md5sum "${{ steps.assemble_apk.outputs.apk_path }}" | awk '{ print $1 }')
           echo "sha256=${SHA256_SUM}" >> "$GITHUB_OUTPUT"
@@ -111,10 +115,10 @@ jobs:
           echo "Computed SHA-256: ${SHA256_SUM}"
           echo "Computed MD5: ${MD5_SUM}"
 
-      - name: Upload APK Build Artifact
+      - name: Upload Signed Release APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BMI-Calculator-APK-${{ github.ref_name }}
+          name: BMI-Calculator-Release-Signed-APK-${{ github.ref_name }}
           path: ${{ steps.assemble_apk.outputs.apk_path }}
           if-no-files-found: error
 
@@ -122,7 +126,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          name: "BMI Calculator ${{ github.ref_name }} — Material 3 Expressive Release"
+          name: "BMI Calculator ${{ github.ref_name }} — Signed Release APK"
           body_path: RELEASE_NOTES.md
           draft: false
           prerelease: false

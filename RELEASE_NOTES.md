@@ -49,5 +49,5 @@
 
 | Artifact File | Algorithm | Checksum Value |
 |---|---|---|
-| `BMI-Calculator-v1.0.0.apk` | **SHA-256** | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` *(auto-updated by CI)* |
-| `BMI-Calculator-v1.0.0.apk` | **MD5** | `d41d8cd98f00b204e9800998ecf8427e` *(auto-updated by CI)* |
+| `app-release.apk` (`BMI-Calculator-v1.0.0.apk`) | **SHA-256** | `20eca6f35697dd1825fb4e502f68c875455f9e73756434201f1a6f99733bd515` |
+| `app-release.apk` (`BMI-Calculator-v1.0.0.apk`) | **MD5** | `8ee91cf56275276537fb2284252af8ae` |
