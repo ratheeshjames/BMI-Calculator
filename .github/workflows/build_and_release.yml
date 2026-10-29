@@ -35,7 +35,7 @@ jobs:
           cache: "gradle"
 
       - name: Setup Android SDK & Build Tools
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       - name: Grant Execute Permission for Gradlew
         run: |
