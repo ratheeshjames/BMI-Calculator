@@ -1,0 +1,6 @@
+{
+  "name": "BMI Calculator",
+  "description": "Comprehensive BMI & body composition calculator with Material 3 Expressive design, category feedback, and health analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
